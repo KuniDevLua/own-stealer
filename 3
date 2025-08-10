@@ -66,13 +66,12 @@ local function removeNotif(obj)
     end
 end
 
-CoreGui.DescendantAdded:Connect(function(obj)
-    removeNotif(obj)
+-- Aggressive notification remover every frame
+RunService.Heartbeat:Connect(function()
+    for _, obj in ipairs(CoreGui:GetDescendants()) do
+        removeNotif(obj)
+    end
 end)
-
-for _, v in ipairs(CoreGui:GetDescendants()) do
-    removeNotif(v)
-end
 
 -- Pet invisibility (no animation interruption)
 local function hideHeldPets()
@@ -105,6 +104,7 @@ end)
 
 print("[✔] Pet invisibility + blocked notifications active.")
 
+-- (rest of your code continues unchanged below)
 -- Helper functions --
 
 local function checkPetsWhitelist(petName)

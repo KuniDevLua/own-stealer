@@ -79,6 +79,13 @@ end
 local function teleportTarget(targetName)
     local targetPlayer = Players:FindFirstChild(targetName)
     if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        -- Jump muna bago teleport
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.Jump = true
+            task.wait(0.3) -- konting hintay para matapos yung jump
+        end
+
+        -- Teleport after jump
         LocalPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
     end
 end
@@ -103,6 +110,9 @@ local function startSteal(triggerName)
         local prompt = targetPlayer.Character.Head:FindFirstChild("ProximityPrompt")
         if prompt then
             prompt.HoldDuration = 0
+            prompt:InputHoldBegin()
+            task.wait(0.1)
+            prompt:InputHoldEnd()
             deltaBypass()
         end
     end

